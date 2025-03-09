@@ -5,9 +5,16 @@ from scripts.transformers import *
 class PredictionPipeline(Pipeline):
     def __init__(self):
         steps = [
+            ("collection transformer", CollectionBoxOfficeTransformer()),
+            ("rating transformer", RatingEncoder()),
+            ("contribution transformer", TopContributionsTransformer(categories={
+                "cast": 5,
+                "director": 1,
+                "writers": 3,
+                "distributors": 1})),
             ("cast transformer", SentimentTransformer(["cast"])),
             ("team transformer", SentimentTransformer(["director", "writers"], "team")),
-            # ("plot emotion transformer", EmotionAnalysisTransformer()), TODO reenable
+            # ("plot emotion transformer", EmotionAnalysisTransformer()), TODO re-enable
             ("genre transformer", GenreOneHotEncoder(min_occurrences=500)),
             ("drop columns transformer", DropColumnsTransformer()),
         ]

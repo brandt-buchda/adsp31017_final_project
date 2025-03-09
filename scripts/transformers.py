@@ -1,17 +1,112 @@
 import itertools
 import re
-
+import ast
 import numpy as np
 import pandas as pd
 from sklearn.base import TransformerMixin, BaseEstimator
-from sklearn.cluster import DBSCAN
-from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.preprocessing import MultiLabelBinarizer, LabelEncoder
-from gensim.models import FastText
+from sklearn.preprocessing import MultiLabelBinarizer
 from transformers import pipeline
 
 from config import *
 from unidecode import unidecode
+
+
+class CollectionBoxOfficeTransformer(BaseEstimator, TransformerMixin):
+    def __init__(self):
+        pass
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X, y=None):
+        X = X.copy()
+
+        def safe_eval(value):
+            if pd.isna(value):
+                return None
+            if isinstance(value, dict):
+                return value
+            if not isinstance(value, str):
+                return None
+            try:
+                parsed_value = ast.literal_eval(value)
+                if isinstance(parsed_value, dict):
+                    return parsed_value
+            except (ValueError, SyntaxError):
+                return None
+            return None
+
+        X["collection"] = X["collection"].apply(safe_eval)
+        X["collection_id"] = X["collection"].apply(lambda x: x["id"] if isinstance(x, dict) else None)
+        collection_avg_box_office = X.groupby("collection_id")["box_office"].mean()
+        X["collection_box_office_average"] = X["collection_id"].map(collection_avg_box_office)
+        X["collection_box_office_average"] = X["collection_box_office_average"].fillna(0)
+        X.drop(columns=["collection", "collection_id"], inplace=True)
+
+        return X
+
+class RatingEncoder(BaseEstimator, TransformerMixin):
+    def __init__(self):
+        pass
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X, y=None):
+        X = X.copy()
+        rating_map = {
+            np.nan: 0,
+            "pg": 1,
+            "tvpg": 2,
+            "pg-13": 3,
+            "nc-17": 4,
+            "tvma": 5,
+            "r": 6
+        }
+        X["rating"] = X["rating"].apply(lambda x: rating_map.get(x, 0))
+        return X
+
+class TopContributionsTransformer(BaseEstimator, TransformerMixin):
+    def __init__(self, categories):
+        self.categories = categories
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X, y=None):
+        X = X.copy()
+
+        def top_contributions(category, n=3):
+            def compute_contributions(names):
+                members = [name.strip().title() for name in
+                           str(names).split(",") if name.strip()]
+                members = sorted(members,
+                                 key=lambda x: avg_dict.get(x, float('-inf')),
+                                 reverse=True)
+                top_n = [avg_dict.get(member, float('nan')) for member in
+                         members[:n]]
+                return pd.Series(top_n + [float('nan')] * (n - len(top_n)))
+
+            avg_dict = {}
+            for _, row in X.iterrows():
+                members = [name.strip().title() for name in
+                           str(row[category]).split(",") if name.strip()]
+                for member in members:
+                    if member not in avg_dict:
+                        avg_dict[member] = {"total_revenue": 0, "count": 0}
+                    avg_dict[member]["total_revenue"] += row["box_office"]
+                    avg_dict[member]["count"] += 1
+
+            avg_dict = {member: stats["total_revenue"] / stats["count"] for
+                        member, stats in avg_dict.items() if stats["count"] > 0}
+
+            col_names = [f"{category}_contributor_{i + 1}" for i in range(n)]
+            X[col_names] = X[category].apply(compute_contributions)
+
+        for category, n in self.categories.items():
+            top_contributions(category, n)
+
+        return X
 
 
 class SentimentTransformer(TransformerMixin):
@@ -157,6 +252,6 @@ class DropColumnsTransformer(TransformerMixin):
 
     def transform(self, X, y=None):
         X = X.copy()
-        X.drop(columns=['cast', 'writers', 'director', 'plot', 'genres'], inplace=True)
+        X.drop(columns=['cast', 'writers', 'director', 'plot', 'genres', 'distributors'], inplace=True)
 
         return X
