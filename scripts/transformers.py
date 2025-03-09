@@ -3,7 +3,11 @@ import re
 
 import numpy as np
 import pandas as pd
-from sklearn.base import TransformerMixin
+from sklearn.base import TransformerMixin, BaseEstimator
+from sklearn.cluster import DBSCAN
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.preprocessing import MultiLabelBinarizer, LabelEncoder
+from gensim.models import FastText
 from transformers import pipeline
 
 from config import *
@@ -29,8 +33,6 @@ class SentimentTransformer(TransformerMixin):
             name = re.sub(r'[^a-zA-Z\s]', '', name)
             name = " ".join(name.split())
             return name.lower()
-
-        print(X.head())
 
         for col in self.columns:
             X[col] = X[col].apply(
@@ -79,14 +81,13 @@ class EmotionAnalysisTransformer(TransformerMixin):
         self.emotion_analyzer = pipeline('text-classification',
                                          model=self.model_name,
                                          top_k=None)
-        self.emotion_labels = ['anger', 'disgust', 'fear', 'joy', 'neutral',
-                               'sadness', 'surprise']  # Known labels
+        self.emotion_labels = ['anger', 'disgust', 'fear', 'joy', 'neutral', 'sadness', 'surprise']
 
     def fit(self, X, y=None):
-        return self  # No fitting required
+        return self
 
     def transform(self, X, y=None):
-        X = X.copy()  # Ensure X is not modified in place
+        X = X.copy()
         emotion_data = []
 
         for row in X.itertuples(index=False):
@@ -97,23 +98,55 @@ class EmotionAnalysisTransformer(TransformerMixin):
 
             print(title, ": ", emotions)
 
-            # Extract emotion scores
             emotion_scores = {item['label']: item['score'] for item in emotions[0]}
 
-            # Find dominant emotion
             dominant_emotion = max(emotion_scores, key=emotion_scores.get)
 
-            # Create one-hot encoded dominant emotion fields
             one_hot_dominant = {f"{label}_dominant_emotion": int(label == dominant_emotion) for label in self.emotion_labels}
 
-            # Append scores and one-hot encoding
             emotion_data.append({**emotion_scores, **one_hot_dominant})
 
-        # Convert to DataFrame
         emotion_df = pd.DataFrame(emotion_data, index=X.index if isinstance(X, pd.Series) else None)
 
-        # Concatenate original X with new emotion columns
         return pd.concat([X.reset_index(drop=True), emotion_df.reset_index(drop=True)], axis=1)
+
+
+class GenreOneHotEncoder(BaseEstimator, TransformerMixin):
+    def __init__(self, genres_column="genres", min_occurrences=500):
+        self.mlb = MultiLabelBinarizer()
+        self.genres_column = genres_column
+        self.min_occurrences = min_occurrences
+
+    def clean_genres(self, genre_list):
+        cleaned_genres = []
+        for genre in genre_list:
+            split_genres = re.split(r'[,&/\- ]', genre.lower())
+            cleaned_genres.extend([g.strip() for g in split_genres if g.strip()])
+
+        return cleaned_genres
+
+    def fit(self, X, y=None):
+        all_genres = X[self.genres_column].apply(self.clean_genres)
+
+        genre_counts = pd.Series([genre for sublist in all_genres for genre in
+                                  sublist]).value_counts()
+
+        self.keep_genres = genre_counts[
+            genre_counts >= self.min_occurrences].index.tolist()
+
+        filtered_genres = all_genres.apply(
+            lambda x: [g for g in self.clean_genres(x) if
+                       g in self.keep_genres])
+        self.mlb.fit(filtered_genres)
+        return self
+
+    def transform(self, X):
+        all_genres = X[self.genres_column].apply(self.clean_genres)
+        genre_matrix = self.mlb.transform(all_genres)
+
+        genre_df = pd.DataFrame(genre_matrix, columns=[f'genre_{g}' for g in self.mlb.classes_])
+
+        return pd.concat([X, genre_df], axis=1)
 
 class DropColumnsTransformer(TransformerMixin):
     def __init__(self):
@@ -124,6 +157,6 @@ class DropColumnsTransformer(TransformerMixin):
 
     def transform(self, X, y=None):
         X = X.copy()
-        X.drop(columns=['cast', 'writers', 'director'], inplace=True)
+        X.drop(columns=['cast', 'writers', 'director', 'plot', 'genres'], inplace=True)
 
         return X

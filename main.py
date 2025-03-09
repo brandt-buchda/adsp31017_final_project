@@ -32,7 +32,7 @@ def main():
         data_dict = {col: DEFAULT_SCHEMA[col](value) for col, value in zip(DEFAULT_SCHEMA.keys(), manual_input)}
         df = loader.load_manual(data_dict)
 
-    fitted = pipeline.transform(df)
+    fitted = pipeline.fit_transform(df)
 
     fitted.set_index("title", inplace=True)
     fitted.to_csv("train.csv", index=True)
