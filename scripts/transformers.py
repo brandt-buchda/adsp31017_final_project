@@ -4,6 +4,8 @@ import re
 import numpy as np
 import pandas as pd
 from sklearn.base import TransformerMixin
+from transformers import pipeline
+
 from config import *
 from unidecode import unidecode
 
@@ -66,6 +68,52 @@ class SentimentTransformer(TransformerMixin):
             X.drop(columns=[f'{self.alias}'], inplace=True)
 
         return X
+
+
+class EmotionAnalysisTransformer(TransformerMixin):
+    def __init__(self,
+                 model_name='bhadresh-savani/distilbert-base-uncased-emotion',
+                 max_length=512):
+        self.model_name = model_name
+        self.max_length = max_length
+        self.emotion_analyzer = pipeline('text-classification',
+                                         model=self.model_name,
+                                         top_k=None)
+        self.emotion_labels = ['anger', 'disgust', 'fear', 'joy', 'neutral',
+                               'sadness', 'surprise']  # Known labels
+
+    def fit(self, X, y=None):
+        return self  # No fitting required
+
+    def transform(self, X, y=None):
+        X = X.copy()  # Ensure X is not modified in place
+        emotion_data = []
+
+        for row in X.itertuples(index=False):
+            title, text = row.title, row.plot
+            truncated_text = text[:self.max_length]
+
+            emotions = self.emotion_analyzer(truncated_text)
+
+            print(title, ": ", emotions)
+
+            # Extract emotion scores
+            emotion_scores = {item['label']: item['score'] for item in emotions[0]}
+
+            # Find dominant emotion
+            dominant_emotion = max(emotion_scores, key=emotion_scores.get)
+
+            # Create one-hot encoded dominant emotion fields
+            one_hot_dominant = {f"{label}_dominant_emotion": int(label == dominant_emotion) for label in self.emotion_labels}
+
+            # Append scores and one-hot encoding
+            emotion_data.append({**emotion_scores, **one_hot_dominant})
+
+        # Convert to DataFrame
+        emotion_df = pd.DataFrame(emotion_data, index=X.index if isinstance(X, pd.Series) else None)
+
+        # Concatenate original X with new emotion columns
+        return pd.concat([X.reset_index(drop=True), emotion_df.reset_index(drop=True)], axis=1)
 
 class DropColumnsTransformer(TransformerMixin):
     def __init__(self):

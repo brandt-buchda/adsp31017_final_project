@@ -7,6 +7,7 @@ class PredictionPipeline(Pipeline):
         steps = [
             ("cast transformer", SentimentTransformer(["cast"])),
             ("team transformer", SentimentTransformer(["director", "writers"], "team")),
+            # ("plot emotion transformer", EmotionAnalysisTransformer()), TODO reenable
             ("drop columns transformer", DropColumnsTransformer()),
         ]
 
