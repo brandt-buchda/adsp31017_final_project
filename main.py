@@ -15,7 +15,7 @@ def parse_args():
 
 def main():
     args = parse_args()
-    loader = DataLoader()
+    loader = DataLoader(schema_mapping={"writer": "writers", "distributor": "distributors", "genre": "genres", "belongs_to_collection": "collection"})
     pipeline = PredictionPipeline()
 
     if args.csv:
@@ -33,6 +33,7 @@ def main():
         df = loader.load_manual(data_dict)
 
     fitted = pipeline.transform(df)
+
     fitted.set_index("title", inplace=True)
     fitted.to_csv("train.csv", index=True)
 

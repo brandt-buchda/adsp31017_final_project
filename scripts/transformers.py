@@ -1,3 +1,4 @@
+import itertools
 import re
 
 import numpy as np
@@ -27,15 +28,17 @@ class SentimentTransformer(TransformerMixin):
             name = " ".join(name.split())
             return name.lower()
 
-        X[self.alias] = X[self.columns].apply(
-            lambda row: ", ".join(row.fillna("")), axis=1)
+        print(X.head())
 
-        X[self.alias] = X[self.alias].apply(
-            lambda names: ", ".join(
-                [clean_name(name) for name in names.split(",")]))
+        for col in self.columns:
+            X[col] = X[col].apply(
+                lambda cell: re.split(r',\s*|\n', cell) if isinstance(cell, str) else cell)
+
+        X[self.alias] = X[self.columns].apply(
+            lambda row: list(itertools.chain.from_iterable(row)), axis=1)
 
         X[f'{self.alias}_names'] = X[self.alias].apply(
-            lambda names: [clean_name(name) for name in names.split(",")])
+            lambda names: [clean_name(name) for name in names])
 
         sentiment_columns = self._sentiments.select_dtypes(
             include='number').columns.tolist()
@@ -73,6 +76,6 @@ class DropColumnsTransformer(TransformerMixin):
 
     def transform(self, X, y=None):
         X = X.copy()
-        X.drop(columns=['cast', 'writer', 'director'], inplace=True)
+        X.drop(columns=['cast', 'writers', 'director'], inplace=True)
 
         return X

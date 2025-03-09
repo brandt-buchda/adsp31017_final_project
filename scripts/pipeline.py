@@ -6,7 +6,7 @@ class PredictionPipeline(Pipeline):
     def __init__(self):
         steps = [
             ("cast transformer", SentimentTransformer(["cast"])),
-            ("team transformer", SentimentTransformer(["director", "writer"], "team")),
+            ("team transformer", SentimentTransformer(["director", "writers"], "team")),
             ("drop columns transformer", DropColumnsTransformer()),
         ]
 

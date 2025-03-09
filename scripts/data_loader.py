@@ -1,8 +1,9 @@
 import pandas as pd
-from typing import Union
+import re
+from config import *
 
 class DataLoader:
-    def __init__(self, schema: dict=None, schema_mapping: dict=None):
+    def __init__(self, schema: dict=DEFAULT_SCHEMA, schema_mapping: dict=None):
         self.schema = schema
         self.schema_mapping = schema_mapping
 
@@ -10,7 +11,7 @@ class DataLoader:
         try:
             df = pd.read_csv(file_path)
 
-            if self.schema is not None:
+            if self.schema_mapping is not None:
                 df.rename(columns=self.schema_mapping, inplace=True)
             return self.validate_data(df)
 
@@ -31,13 +32,14 @@ class DataLoader:
             if missing_cols:
                 raise ValueError(f"Missing expected columns: {missing_cols}")
 
-            df = df[list(self.schema.keys())]
+            # Ensure we're working with a copy and avoid SettingWithCopyWarning
+            df = df.loc[:, list(self.schema.keys())]
 
             for col, dtype in self.schema.items():
                 if dtype == list[str]:
-                    df[col] = df[col].apply(
-                        lambda x: x.split(", ") if isinstance(x, str) else [])
+                    df.loc[:, col] = df[col].apply(
+                        lambda x: re.split(r",\s*|\n", x) if isinstance(x, str) else [])
                 else:
-                    df[col] = df[col].astype(dtype)
+                    df.loc[:, col] = df[col].astype(dtype)
 
         return df
