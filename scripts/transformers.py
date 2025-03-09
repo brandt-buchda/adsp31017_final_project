@@ -11,6 +11,40 @@ from config import *
 from unidecode import unidecode
 
 
+class ExternalDataTransformer(BaseEstimator, TransformerMixin):
+    def __init__(self):
+        self.box_office_revenue = pd.read_csv(os.path.join(PROJECT_PATH, EXTERNAL_DATA_PATH, 'box_office_revenue.csv'), index_col=0)
+        self.cpi_yearly = pd.read_csv(os.path.join(PROJECT_PATH, EXTERNAL_DATA_PATH, 'cpi_yearly.csv'), index_col=0)
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X, y=None):
+        X = X.copy()
+        X = X.merge(self.box_office_revenue, left_on="release_year", right_index=True, how="left")
+        X = X.merge(self.cpi_yearly, left_on="release_year", right_index=True, how="left")
+        return X
+
+
+class BoxOfficeCleanerTransformer(BaseEstimator, TransformerMixin):
+    def __init__(self):
+        self.box_office_revenue = pd.read_csv(os.path.join(PROJECT_PATH, EXTERNAL_DATA_PATH, 'box_office_revenue.csv'), index_col=0)
+        self.latest_box_office_revenue = float(self.box_office_revenue.loc[2024])
+        self.cpi_yearly = pd.read_csv(os.path.join(PROJECT_PATH, EXTERNAL_DATA_PATH, 'cpi_yearly.csv'), index_col=0)
+        self.latest_cpi = float(self.cpi_yearly.loc[2024])
+        pass
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X, y=None):
+        X = X.copy()
+        X = X[(X["box_office"] >= 1e5) & (X["box_office"] <= 5e8)]
+        X = X.dropna(subset=["box_office"])
+
+        return X
+
+
 class CollectionBoxOfficeTransformer(BaseEstimator, TransformerMixin):
     def __init__(self):
         pass
