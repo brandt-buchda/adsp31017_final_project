@@ -38,7 +38,7 @@ class DataAdjuster:
         self.apply_boxcox = apply_boxcox
         self.boxcox_lambda = boxcox_lambda
 
-        # Read and store CPI and gross raw_data
+        # Read and store CPI and gross data
         self.cpi_data = pd.read_csv(cpi_data_path, index_col=0) if cpi_data_path else None
         self.gross_data = pd.read_csv(gross_data_path, index_col=0) if gross_data_path else None
         self.date_ref_col = None
