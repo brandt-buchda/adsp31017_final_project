@@ -19,3 +19,10 @@ DEFAULT_SCHEMA = {
     "genres": list[str],
     "plot": str
 }
+
+DEFAULT_SCHMA_MAPPING = {
+    "writer": "writers",
+    "distributor": "distributors",
+    "genre": "genres",
+    "belongs_to_collection": "collection",
+}

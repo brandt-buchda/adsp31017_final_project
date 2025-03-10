@@ -11,11 +11,12 @@ pd.set_option('display.max_rows', None)
 def parse_args():
     parser = argparse.ArgumentParser(description="Load data from CSV or manual input.")
     parser.add_argument("--csv", type=str, help="Path to CSV file containing data.")
+    parser.add_argument("--test", action="store_true", help="Flag to run in test mode (only transform and predict).")
     return parser.parse_args()
 
 def main():
     args = parse_args()
-    loader = DataLoader(schema_mapping={"writer": "writers", "distributor": "distributors", "genre": "genres", "belongs_to_collection": "collection"})
+    loader = DataLoader(schema_mapping=DEFAULT_SCHMA_MAPPING)
     pipeline = PredictionPipeline()
 
     if args.csv:
@@ -32,10 +33,20 @@ def main():
         data_dict = {col: DEFAULT_SCHEMA[col](value) for col, value in zip(DEFAULT_SCHEMA.keys(), manual_input)}
         df = loader.load_manual(data_dict)
 
-    fitted = pipeline.fit_transform(df)
+    if args.test:
+        print("Running in test mode: Transforming data and making predictions...")
+        transformed = pipeline.transform(df)
+        transformed.set_index("title", inplace=True)
+        transformed.to_csv("test.csv", index=True)
+    else:
+        print("Training mode: Fitting and transforming pipeline...")
+        transformed = pipeline.fit_transform(df)
+        transformed.set_index("title", inplace=True)
+        transformed.to_csv("train.csv", index=True)
 
-    fitted.set_index("title", inplace=True)
-    fitted.to_csv("train.csv", index=True)
+    # print("Making predictions...")
+    # predictions = pipeline.predict(transformed)
+    # print(predictions)
 
 if __name__ == "__main__":
     main()

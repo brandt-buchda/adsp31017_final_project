@@ -29,9 +29,9 @@ class ExternalDataTransformer(BaseEstimator, TransformerMixin):
 class BoxOfficeCleanerTransformer(BaseEstimator, TransformerMixin):
     def __init__(self):
         self.box_office_revenue = pd.read_csv(os.path.join(PROJECT_PATH, EXTERNAL_DATA_PATH, 'box_office_revenue.csv'), index_col=0)
-        self.latest_box_office_revenue = float(self.box_office_revenue.loc[2024])
+        self.latest_box_office_revenue = float(self.box_office_revenue.loc[2024].iloc[0])
         self.cpi_yearly = pd.read_csv(os.path.join(PROJECT_PATH, EXTERNAL_DATA_PATH, 'cpi_yearly.csv'), index_col=0)
-        self.latest_cpi = float(self.cpi_yearly.loc[2024])
+        self.latest_cpi = float(self.cpi_yearly.loc[2024].iloc[0])
         pass
 
     def fit(self, X, y=None):
@@ -46,38 +46,47 @@ class BoxOfficeCleanerTransformer(BaseEstimator, TransformerMixin):
 
 
 class CollectionBoxOfficeTransformer(BaseEstimator, TransformerMixin):
-    def __init__(self):
-        pass
+    def __init__(self, csv_path="data/collection_box_office.csv"):
+        self.csv_path = csv_path
+        self.collection_avg_box_office = {}
 
     def fit(self, X, y=None):
+        X = X.copy()
+        X["collection"] = X["collection"].apply(self.safe_eval)
+        X["collection_id"] = X["collection"].apply(lambda x: x["id"] if isinstance(x, dict) else None)
+        collection_avg_box_office = X.groupby("collection_id")["box_office"].mean().dropna()
+
+        collection_avg_box_office.to_csv(self.csv_path, header=["collection_box_office_average"])
+
         return self
 
     def transform(self, X, y=None):
         X = X.copy()
-
-        def safe_eval(value):
-            if pd.isna(value):
-                return None
-            if isinstance(value, dict):
-                return value
-            if not isinstance(value, str):
-                return None
-            try:
-                parsed_value = ast.literal_eval(value)
-                if isinstance(parsed_value, dict):
-                    return parsed_value
-            except (ValueError, SyntaxError):
-                return None
-            return None
-
-        X["collection"] = X["collection"].apply(safe_eval)
+        X["collection"] = X["collection"].apply(self.safe_eval)
         X["collection_id"] = X["collection"].apply(lambda x: x["id"] if isinstance(x, dict) else None)
-        collection_avg_box_office = X.groupby("collection_id")["box_office"].mean()
-        X["collection_box_office_average"] = X["collection_id"].map(collection_avg_box_office)
-        X["collection_box_office_average"] = X["collection_box_office_average"].fillna(0)
-        X.drop(columns=["collection", "collection_id"], inplace=True)
 
+        self.collection_avg_box_office = pd.read_csv(self.csv_path, index_col="collection_id")["collection_box_office_average"].to_dict()
+
+        X["collection_box_office_average"] = X["collection_id"].map(self.collection_avg_box_office).fillna(0)
+        X.drop(columns=["collection", "collection_id"], inplace=True)
         return X
+
+    @staticmethod
+    def safe_eval(value):
+        if pd.isna(value):
+            return None
+        if isinstance(value, dict):
+            return value
+        if not isinstance(value, str):
+            return None
+        try:
+            parsed_value = ast.literal_eval(value)
+            if isinstance(parsed_value, dict):
+                return parsed_value
+        except (ValueError, SyntaxError):
+            return None
+        return None
+
 
 class RatingEncoder(BaseEstimator, TransformerMixin):
     def __init__(self):
