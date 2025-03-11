@@ -1,9 +1,10 @@
 import argparse
+
 import pandas as pd
+import pickle
 from config import *
 from scripts.data_loader import DataLoader
 from scripts.pipeline import PredictionPipeline
-from scripts.utilites import column_stats
 
 pd.set_option('display.max_columns', None)
 pd.set_option('display.max_rows', None)
@@ -36,17 +37,20 @@ def main():
     if args.test:
         print("Running in test mode: Transforming data and making predictions...")
         transformed = pipeline.transform(df)
-        transformed.set_index("title", inplace=True)
-        transformed.to_csv("test.csv", index=True)
+        # transformed.to_csv("test.csv", index=True)
+
     else:
         print("Training mode: Fitting and transforming pipeline...")
         transformed = pipeline.fit_transform(df)
-        transformed.set_index("title", inplace=True)
         transformed.to_csv("train.csv", index=True)
 
-    # print("Making predictions...")
-    # predictions = pipeline.predict(transformed)
-    # print(predictions)
+    with open('models/classification.pkl', 'rb') as file:
+        model = pickle.load(file)
+
+    print("Making predictions...")
+    transformed = transformed.drop("box_office", axis=1)
+    transformed["predictions"] = model.predict(transformed)
+    transformed["predictions"].to_csv("predictions.csv", index=True)
 
 if __name__ == "__main__":
     main()

@@ -39,7 +39,6 @@ class BoxOfficeCleanerTransformer(BaseEstimator, TransformerMixin):
 
     def transform(self, X, y=None):
         X = X.copy()
-        X = X[(X["box_office"] >= 1e5) & (X["box_office"] <= 5e8)]
         X = X.dropna(subset=["box_office"])
 
         return X
@@ -109,48 +108,103 @@ class RatingEncoder(BaseEstimator, TransformerMixin):
         X["rating"] = X["rating"].apply(lambda x: rating_map.get(x, 0))
         return X
 
+
 class TopContributionsTransformer(BaseEstimator, TransformerMixin):
-    def __init__(self, categories):
+    def __init__(self, categories, csv_path="data/top_contributions.csv"):
+        """
+        Parameters:
+            categories (dict): A dictionary where keys are the category column names (e.g., 'director')
+                               and values are the number (n) of top contributors to compute.
+            csv_path (str): Path to the CSV file to save/load contributions.
+        """
         self.categories = categories
+        self.csv_path = csv_path
+
+    @staticmethod
+    def clean_name(name):
+        """
+        Lowercase the name and remove all non-alphabetical characters.
+        """
+        return re.sub(r'[^a-z]', '', name.lower())
 
     def fit(self, X, y=None):
-        return self
+        # Ensure the output directory exists
+        output_dir = os.path.dirname(self.csv_path)
+        os.makedirs(output_dir, exist_ok=True)
 
-    def transform(self, X, y=None):
-        X = X.copy()
+        # This dictionary will map each category to its contributor average revenue
+        self.contributions_ = {}
+        # This list will collect rows to be saved into a single CSV file
+        rows = []
 
-        def top_contributions(category, n=3):
-            def compute_contributions(names):
-                members = [name.strip().title() for name in
-                           str(names).split(",") if name.strip()]
-                members = sorted(members,
-                                 key=lambda x: avg_dict.get(x, float('-inf')),
-                                 reverse=True)
-                top_n = [avg_dict.get(member, float('nan')) for member in
-                         members[:n]]
-                return pd.Series(top_n + [float('nan')] * (n - len(top_n)))
-
+        for category, n in self.categories.items():
             avg_dict = {}
+            # Loop over each row to accumulate revenue and counts
             for _, row in X.iterrows():
-                members = [name.strip().title() for name in
-                           str(row[category]).split(",") if name.strip()]
+                # Clean names: strip whitespace, clean, then filter empty strings
+                members = [self.clean_name(name.strip())
+                           for name in str(row[category]).split(",") if
+                           name.strip()]
                 for member in members:
                     if member not in avg_dict:
                         avg_dict[member] = {"total_revenue": 0, "count": 0}
                     avg_dict[member]["total_revenue"] += row["box_office"]
                     avg_dict[member]["count"] += 1
 
-            avg_dict = {member: stats["total_revenue"] / stats["count"] for
-                        member, stats in avg_dict.items() if stats["count"] > 0}
+            # Compute the average revenue for each contributor
+            avg_dict = {member: stats["total_revenue"] / stats["count"]
+                        for member, stats in avg_dict.items() if
+                        stats["count"] > 0}
+            self.contributions_[category] = avg_dict
 
+            # Append the computed values to the rows list
+            for member, avg_rev in avg_dict.items():
+                rows.append({
+                    "category": category,
+                    "member": member,
+                    "avg_revenue": avg_rev
+                })
+
+        # Save all contributions to one CSV file
+        df_contrib = pd.DataFrame(rows)
+        df_contrib.to_csv(self.csv_path, index=False)
+        return self
+
+    def transform(self, X, y=None):
+        X = X.copy()
+        # Load the precomputed contributions CSV file
+        df_contrib = pd.read_csv(self.csv_path)
+
+        # Create a dictionary mapping each category to its member:avg_revenue dictionary
+        contributions_by_category = {}
+        for category in self.categories:
+            df_cat = df_contrib[df_contrib["category"] == category]
+            contributions_by_category[category] = dict(
+                zip(df_cat["member"], df_cat["avg_revenue"]))
+
+        # For each category, compute the top contributions and add new columns
+        for category, n in self.categories.items():
+            avg_dict = contributions_by_category.get(category, {})
+
+            def compute_contributions(names):
+                # Clean and process the names in each row
+                members = [self.clean_name(name.strip())
+                           for name in str(names).split(",") if name.strip()]
+                # Sort the members by average revenue (defaulting to -inf if missing)
+                members = sorted(members,
+                                 key=lambda x: avg_dict.get(x, float('-inf')),
+                                 reverse=True)
+                top_n = [avg_dict.get(member, float('nan')) for member in
+                         members[:n]]
+                # Pad the result with NaN if there are fewer than n contributors
+                top_n += [float('nan')] * (n - len(top_n))
+                return pd.Series(top_n)
+
+            # Define new column names for the top contributors
             col_names = [f"{category}_contributor_{i + 1}" for i in range(n)]
             X[col_names] = X[category].apply(compute_contributions)
 
-        for category, n in self.categories.items():
-            top_contributions(category, n)
-
         return X
-
 
 class SentimentTransformer(TransformerMixin):
     def __init__(self, columns, alias=None):
@@ -251,7 +305,9 @@ class EmotionAnalysisTransformer(TransformerMixin):
 
 class GenreOneHotEncoder(BaseEstimator, TransformerMixin):
     def __init__(self, genres_column="genres", min_occurrences=500):
-        self.mlb = MultiLabelBinarizer()
+        self.expected_genres = ['action', 'adventure', 'comedy', 'crime', 'drama',
+                           'family', 'mystery', 'romance', 'thriller']
+        self.mlb = MultiLabelBinarizer(classes=self.expected_genres)
         self.genres_column = genres_column
         self.min_occurrences = min_occurrences
 
@@ -264,21 +320,12 @@ class GenreOneHotEncoder(BaseEstimator, TransformerMixin):
         return cleaned_genres
 
     def fit(self, X, y=None):
-        all_genres = X[self.genres_column].apply(self.clean_genres)
-
-        genre_counts = pd.Series([genre for sublist in all_genres for genre in
-                                  sublist]).value_counts()
-
-        self.keep_genres = genre_counts[
-            genre_counts >= self.min_occurrences].index.tolist()
-
-        filtered_genres = all_genres.apply(
-            lambda x: [g for g in self.clean_genres(x) if
-                       g in self.keep_genres])
-        self.mlb.fit(filtered_genres)
         return self
 
     def transform(self, X):
+        X = X.copy()
+
+        self.mlb.fit(self.expected_genres)
         all_genres = X[self.genres_column].apply(self.clean_genres)
         genre_matrix = self.mlb.transform(all_genres)
 
@@ -295,6 +342,12 @@ class DropColumnsTransformer(TransformerMixin):
 
     def transform(self, X, y=None):
         X = X.copy()
+        X = X[(X["box_office"] >= 1e5) & (X["box_office"] <= 5e9)]
         X.drop(columns=['cast', 'writers', 'director', 'plot', 'genres', 'distributors'], inplace=True)
-
+        X.dropna(subset=["box_office"], inplace=True)
+        X["title_id"] = X["title"] + " (" + X["release_year"].astype(
+            str) + ")"
+        X.drop_duplicates(subset=["title_id"], inplace=True)
+        X.set_index("title_id", inplace=True)
+        X.drop(columns=["title"], inplace=True)
         return X
